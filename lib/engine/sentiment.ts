@@ -72,4 +72,31 @@ export function scoreHeadline(headline: string, summary: string = ""): number {
 
 export function scoreNewsBatch(
   items: NewsItem[],
-  nowUnix: number = Math.floor(Date.now()
+  nowUnix: number = Math.floor(Date.now() / 1000),
+  halfLifeHours = 12
+): { items: NewsItem[]; compositeScore: number } {
+  if (items.length === 0) {
+    return { items: [], compositeScore: 0 };
+  }
+
+  const halfLifeSeconds = halfLifeHours * 3600;
+  const decayLambda = Math.LN2 / halfLifeSeconds;
+
+  let weightedSum = 0;
+  let weightTotal = 0;
+
+  const scoredItems = items.map((item) => {
+    const sentimentScore = scoreHeadline(item.headline, item.summary);
+    const ageSeconds = Math.max(0, nowUnix - item.publishedAt);
+    const weight = Math.exp(-decayLambda * ageSeconds);
+
+    weightedSum += sentimentScore * weight;
+    weightTotal += weight;
+
+    return { ...item, sentimentScore };
+  });
+
+  const compositeScore = weightTotal > 0 ? weightedSum / weightTotal : 0;
+
+  return { items: scoredItems, compositeScore: Math.max(-1, Math.min(1, compositeScore)) };
+}
