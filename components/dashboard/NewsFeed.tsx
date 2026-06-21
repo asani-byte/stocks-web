@@ -13,7 +13,7 @@ export function NewsFeed({ symbol }: { symbol: string }) {
   const { data, isLoading } = useSignal(symbol);
 
   if (isLoading) {
-    return <PanelShell>Loading news…</PanelShell>;
+    return <PanelShell><p className="text-sm text-slate-500">Loading news...</p></PanelShell>;
   }
 
   if (!data || data.news.length === 0) {
