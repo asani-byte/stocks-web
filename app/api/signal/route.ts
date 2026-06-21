@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPriceAdapter } from "@/lib/adapters";
 import { NewsApiAdapter } from "@/lib/adapters/newsApiAdapter";
+import { getDailyCandles } from "@/lib/adapters/twelveDataAdapter";
 import { buildTechnicalSnapshot } from "@/lib/engine/technicals";
 import { scoreNewsBatch } from "@/lib/engine/sentiment";
 import { generateSignal } from "@/lib/engine/signalEngine";
-
-const CANDLE_LOOKBACK_DAYS = 60;
 
 export async function GET(request: NextRequest) {
   const symbol = request.nextUrl.searchParams.get("symbol");
@@ -21,12 +20,11 @@ export async function GET(request: NextRequest) {
     const newsAdapter = new NewsApiAdapter();
 
     const nowUnix = Math.floor(Date.now() / 1000);
-    const fromUnix = nowUnix - CANDLE_LOOKBACK_DAYS * 86400;
     const newsFromUnix = nowUnix - 24 * 3600;
 
     const [quote, candles, rawNews] = await Promise.all([
       priceAdapter.getQuote(upperSymbol),
-      priceAdapter.getCandles(upperSymbol, "D", fromUnix, nowUnix),
+      getDailyCandles(upperSymbol, 90),
       newsAdapter.getNewsForSymbol(upperSymbol, newsFromUnix),
     ]);
 
