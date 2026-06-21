@@ -34,19 +34,14 @@ export function NewsFeed({ symbol }: { symbol: string }) {
           const badge = sentimentBadge(item.sentimentScore);
           return (
             <li key={item.id} className="border-b border-slate-800 pb-3 last:border-0">
-              
-                href={item.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-start gap-2 hover:text-white transition-colors"
-              >
+              <a target="_blank" rel="noopener noreferrer" href={item.url} className="flex items-start gap-2 hover:text-white transition-colors">
                 <span>{badge.icon}</span>
                 <div>
                   <p className="text-sm text-slate-200">{item.headline}</p>
                   <div className="flex items-center gap-2 mt-1 text-xs text-slate-500">
                     <span>{item.source}</span>
                     <span className={badge.color}>
-                      {item.sentimentScore?.toFixed(2) ?? "—"}
+                      {item.sentimentScore ? item.sentimentScore.toFixed(2) : "n/a"}
                     </span>
                   </div>
                 </div>
