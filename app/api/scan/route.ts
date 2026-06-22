@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
+import { sql } from "@vercel/postgres";
 import { getPriceAdapter } from "@/lib/adapters";
 import { NewsApiAdapter } from "@/lib/adapters/newsApiAdapter";
 import { getDailyCandles } from "@/lib/adapters/twelveDataAdapter";
 import { buildTechnicalSnapshot } from "@/lib/engine/technicals";
 import { scoreNewsBatch } from "@/lib/engine/sentiment";
 import { generateSignal } from "@/lib/engine/signalEngine";
-import { SCAN_UNIVERSE } from "@/lib/scanUniverse";
+import { SP500_TICKERS } from "@/lib/sp500";
 import type { Signal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
+
+const SLICE_SIZE = 20;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -46,27 +49,56 @@ async function scanOneSymbol(symbol: string): Promise<Signal | null> {
   }
 }
 
-export async function GET() {
-  const results: Signal[] = [];
+async function saveSignal(signal: Signal): Promise<void> {
+  await sql`
+    INSERT INTO signals (
+      symbol, action, confidence, fused_score, conflicting,
+      entry_price, stop_loss, take_profit, risk_reward_ratio,
+      volatility_regime, rationale, updated_at
+    ) VALUES (
+      ${signal.symbol}, ${signal.action}, ${signal.confidence}, ${signal.fusedScore}, ${signal.conflicting},
+      ${signal.risk.entryPrice}, ${signal.risk.stopLoss}, ${signal.risk.takeProfit}, ${signal.risk.riskRewardRatio},
+      ${signal.risk.volatilityRegime}, ${JSON.stringify(signal.rationale)}, ${signal.generatedAt}
+    )
+    ON CONFLICT (symbol) DO UPDATE SET
+      action = EXCLUDED.action,
+      confidence = EXCLUDED.confidence,
+      fused_score = EXCLUDED.fused_score,
+      conflicting = EXCLUDED.conflicting,
+      entry_price = EXCLUDED.entry_price,
+      stop_loss = EXCLUDED.stop_loss,
+      take_profit = EXCLUDED.take_profit,
+      risk_reward_ratio = EXCLUDED.risk_reward_ratio,
+      volatility_regime = EXCLUDED.volatility_regime,
+      rationale = EXCLUDED.rationale,
+      updated_at = EXCLUDED.updated_at;
+  `;
+}
 
-  for (const symbol of SCAN_UNIVERSE) {
+export async function GET() {
+  const progressResult = await sql`SELECT last_index FROM scan_progress WHERE id = 1;`;
+  const lastIndex = progressResult.rows[0]?.last_index ?? 0;
+
+  const slice = SP500_TICKERS.slice(lastIndex, lastIndex + SLICE_SIZE);
+  const nextIndex = lastIndex + SLICE_SIZE >= SP500_TICKERS.length ? 0 : lastIndex + SLICE_SIZE;
+
+  let savedCount = 0;
+
+  for (const symbol of slice) {
     const signal = await scanOneSymbol(symbol);
-    if (signal) results.push(signal);
+    if (signal) {
+      await saveSignal(signal);
+      savedCount++;
+    }
     await sleep(300);
   }
 
-  const buys = results
-    .filter((s) => s.action === "BUY")
-    .sort((a, b) => b.confidence - a.confidence);
-
-  const sells = results
-    .filter((s) => s.action === "SELL")
-    .sort((a, b) => b.confidence - a.confidence);
+  await sql`UPDATE scan_progress SET last_index = ${nextIndex} WHERE id = 1;`;
 
   return NextResponse.json({
-    scannedAt: Math.floor(Date.now() / 1000),
-    totalScanned: SCAN_UNIVERSE.length,
-    buys,
-    sells,
+    sliceScanned: slice,
+    savedCount,
+    nextIndex,
+    totalTickers: SP500_TICKERS.length,
   });
 }
