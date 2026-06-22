@@ -9,6 +9,11 @@ import { SCAN_UNIVERSE } from "@/lib/scanUniverse";
 import type { Signal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 async function scanOneSymbol(symbol: string): Promise<Signal | null> {
   try {
@@ -17,11 +22,11 @@ async function scanOneSymbol(symbol: string): Promise<Signal | null> {
     const nowUnix = Math.floor(Date.now() / 1000);
     const newsFromUnix = nowUnix - 24 * 3600;
 
-    const [quote, candles, rawNews] = await Promise.all([
-      priceAdapter.getQuote(symbol),
-      getDailyCandles(symbol, 90),
-      newsAdapter.getNewsForSymbol(symbol, newsFromUnix),
-    ]);
+    const quote = await priceAdapter.getQuote(symbol);
+    await sleep(300);
+    const candles = await getDailyCandles(symbol, 90);
+    await sleep(300);
+    const rawNews = await newsAdapter.getNewsForSymbol(symbol, newsFromUnix);
 
     if (candles.length < 35) return null;
 
@@ -47,6 +52,7 @@ export async function GET() {
   for (const symbol of SCAN_UNIVERSE) {
     const signal = await scanOneSymbol(symbol);
     if (signal) results.push(signal);
+    await sleep(300);
   }
 
   const buys = results
