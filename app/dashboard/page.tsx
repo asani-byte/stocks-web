@@ -1,17 +1,59 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Watchlist } from "@/components/dashboard/Watchlist";
 import { QuoteHeader } from "@/components/dashboard/QuoteHeader";
 import { SignalPanel } from "@/components/dashboard/SignalPanel";
 import { NewsFeed } from "@/components/dashboard/NewsFeed";
 import { TopPicks } from "@/components/dashboard/TopPicks";
+import type { Signal } from "@/lib/types";
 
-const DEFAULT_WATCHLIST = ["AAPL", "TSLA", "NVDA"];
+interface ScanResponse {
+  scannedAt: number;
+  totalScanned: number;
+  buys: Signal[];
+  sells: Signal[];
+}
+
+async function fetchScan(): Promise<ScanResponse> {
+  const res = await fetch("/api/scan");
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error ?? "Scan failed");
+  }
+  return data;
+}
+
+const FALLBACK_WATCHLIST = ["AAPL", "TSLA", "NVDA"];
 
 export default function DashboardPage() {
-  const [symbols, setSymbols] = useState<string[]>(DEFAULT_WATCHLIST);
-  const [activeSymbol, setActiveSymbol] = useState<string>(DEFAULT_WATCHLIST[0]);
+  const [symbols, setSymbols] = useState<string[]>(FALLBACK_WATCHLIST);
+  const [activeSymbol, setActiveSymbol] = useState<string>(FALLBACK_WATCHLIST[0]);
+  const [hasAutoPopulated, setHasAutoPopulated] = useState(false);
+
+  const { data: scanData } = useQuery({
+    queryKey: ["scan"],
+    queryFn: fetchScan,
+    staleTime: 15 * 60_000,
+    refetchInterval: 15 * 60_000,
+    retry: 1,
+  });
+
+  useEffect(() => {
+    if (hasAutoPopulated || !scanData) return;
+
+    const scannedSymbols = [
+      ...scanData.buys.map((s) => s.symbol),
+      ...scanData.sells.map((s) => s.symbol),
+    ];
+
+    if (scannedSymbols.length > 0) {
+      setSymbols(scannedSymbols);
+      setActiveSymbol(scannedSymbols[0]);
+      setHasAutoPopulated(true);
+    }
+  }, [scanData, hasAutoPopulated]);
 
   function handleAdd(symbol: string) {
     if (!symbols.includes(symbol)) {
