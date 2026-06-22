@@ -12,8 +12,8 @@ const WEIGHTS = {
 };
 
 const THRESHOLDS = {
-  buy: 0.5,
-  sell: -0.5,
+  buy: 0.25,
+  sell: -0.25,
 };
 
 function technicalScoreFrom(snapshot: TechnicalSnapshot): number {
@@ -119,12 +119,12 @@ export function generateSignal(input: SignalEngineInput): Signal {
 
   const rationale: string[] = [];
   rationale.push(
-    `RSI(14) = ${technicals.rsi14.toFixed(1)} → ${
+    `RSI(14) = ${technicals.rsi14.toFixed(1)} -> ${
       technicals.rsi14 < 30 ? "oversold" : technicals.rsi14 > 70 ? "overbought" : "neutral"
     }`
   );
   rationale.push(
-    `MACD histogram = ${technicals.macd.histogram.toFixed(3)} → ${
+    `MACD histogram = ${technicals.macd.histogram.toFixed(3)} -> ${
       technicals.macd.histogram > 0 ? "bullish momentum" : "bearish momentum"
     }`
   );
@@ -132,7 +132,7 @@ export function generateSignal(input: SignalEngineInput): Signal {
     `News sentiment composite = ${sentimentScore.toFixed(2)} from ${input.newsItems.length} articles`
   );
   if (directionsDisagree) {
-    rationale.push("⚠ Technical and sentiment signals disagree — confidence suppressed to HOLD");
+    rationale.push("Technical and sentiment signals disagree, confidence suppressed to HOLD");
   }
   rationale.push(`Volatility regime: ${risk.volatilityRegime} (ATR ${technicals.atr14.toFixed(2)})`);
 
