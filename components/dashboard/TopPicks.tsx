@@ -3,35 +3,34 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Signal } from "@/lib/types";
 
-interface ScanResponse {
-  scannedAt: number;
-  totalScanned: number;
+interface PicksResponse {
+  fetchedAt: number;
   buys: Signal[];
   sells: Signal[];
 }
 
-async function fetchScan(): Promise<ScanResponse> {
-  const res = await fetch("/api/scan");
+async function fetchPicks(): Promise<PicksResponse> {
+  const res = await fetch("/api/picks");
   const data = await res.json();
   if (!res.ok) {
-    throw new Error(data.error ?? "Scan failed");
+    throw new Error(data.error ?? "Failed to load picks");
   }
   return data;
 }
 
 export function TopPicks() {
   const { data, isLoading, error } = useQuery({
-    queryKey: ["scan"],
-    queryFn: fetchScan,
-    staleTime: 15 * 60_000,
-    refetchInterval: 15 * 60_000,
+    queryKey: ["picks"],
+    queryFn: fetchPicks,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
     retry: 1,
   });
 
   if (isLoading) {
     return (
       <PanelShell>
-        <p className="text-sm text-slate-500">Scanning market for opportunities, this can take up to 30 seconds...</p>
+        <p className="text-sm text-slate-500">Loading picks...</p>
       </PanelShell>
     );
   }
@@ -52,14 +51,12 @@ export function TopPicks() {
         <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
           Top picks
         </h2>
-        <span className="text-xs text-slate-500">
-          Scanned {data.totalScanned} tickers
-        </span>
+        <span className="text-xs text-slate-500">S&amp;P 500 scan</span>
       </div>
 
       {data.buys.length === 0 && data.sells.length === 0 && (
         <p className="text-sm text-slate-500">
-          No strong signals right now. Check back later.
+          No strong signals found yet. The scanner runs continuously in the background, check back soon.
         </p>
       )}
 
