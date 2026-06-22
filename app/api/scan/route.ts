@@ -6,49 +6,45 @@ import { getDailyCandles } from "@/lib/adapters/twelveDataAdapter";
 import { buildTechnicalSnapshot } from "@/lib/engine/technicals";
 import { scoreNewsBatch } from "@/lib/engine/sentiment";
 import { generateSignal } from "@/lib/engine/signalEngine";
-import { SP500_TICKERS } from "@/lib/sp500";
-import type { Signal } from "@/lib/types";
 
-export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+const CACHE_TTL_SECONDS = 10 * 60;
 
-const SLICE_SIZE = 2;
-const TWELVE_DATA_SPACING_MS = 7500;
+async function getCachedSignal(symbol: string) {
+  const result = await sql`
+    SELECT symbol, action, confidence, fused_score, conflicting,
+           entry_price, stop_loss, take_profit, risk_reward_ratio,
+           volatility_regime, rationale, updated_at
+    FROM signals
+    WHERE symbol = ${symbol};
+  `;
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  if (result.rows.length === 0) return null;
+
+  const row = result.rows[0];
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const ageSeconds = nowUnix - Number(row.updated_at);
+
+  if (ageSeconds > CACHE_TTL_SECONDS) return null;
+
+  return {
+    symbol: row.symbol,
+    action: row.action,
+    confidence: row.confidence,
+    fusedScore: row.fused_score,
+    conflicting: row.conflicting,
+    risk: {
+      entryPrice: row.entry_price,
+      stopLoss: row.stop_loss,
+      takeProfit: row.take_profit,
+      riskRewardRatio: row.risk_reward_ratio,
+      volatilityRegime: row.volatility_regime,
+    },
+    rationale: JSON.parse(row.rationale),
+    generatedAt: Number(row.updated_at),
+  };
 }
 
-async function scanOneSymbol(symbol: string): Promise<Signal | null> {
-  try {
-    const priceAdapter = getPriceAdapter();
-    const newsAdapter = new NewsApiAdapter();
-    const nowUnix = Math.floor(Date.now() / 1000);
-    const newsFromUnix = nowUnix - 24 * 3600;
-
-    const quote = await priceAdapter.getQuote(symbol);
-    const candles = await getDailyCandles(symbol, 90);
-    const rawNews = await newsAdapter.getNewsForSymbol(symbol, newsFromUnix);
-
-    if (candles.length < 35) return null;
-
-    const technicals = buildTechnicalSnapshot(symbol, candles);
-    const { items: scoredNews, compositeScore } = scoreNewsBatch(rawNews, nowUnix);
-
-    return generateSignal({
-      symbol,
-      price: quote.price,
-      technicals,
-      newsItems: scoredNews,
-      compositeSentiment: compositeScore,
-    });
-  } catch (err: any) {
-    console.error(`[/api/scan] ${symbol}:`, err.message);
-    return null;
-  }
-}
-
-async function saveSignal(signal: Signal): Promise<void> {
+async function saveSignalToCache(signal: any) {
   await sql`
     INSERT INTO signals (
       symbol, action, confidence, fused_score, conflicting,
@@ -75,36 +71,66 @@ async function saveSignal(signal: Signal): Promise<void> {
 }
 
 export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const expectedSecret = process.env.CRON_SECRET;
+  const symbol = request.nextUrl.searchParams.get("symbol");
 
-  if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!symbol) {
+    return NextResponse.json({ error: "Missing required query param: symbol" }, { status: 400 });
   }
 
-  const progressResult = await sql`SELECT last_index FROM scan_progress WHERE id = 1;`;
-  const lastIndex = progressResult.rows[0]?.last_index ?? 0;
+  const upperSymbol = symbol.toUpperCase();
 
-  const slice = SP500_TICKERS.slice(lastIndex, lastIndex + SLICE_SIZE);
-  const nextIndex = lastIndex + SLICE_SIZE >= SP500_TICKERS.length ? 0 : lastIndex + SLICE_SIZE;
+  try {
+    const cached = await getCachedSignal(upperSymbol);
+    const priceAdapter = getPriceAdapter();
+    const quote = await priceAdapter.getQuote(upperSymbol);
 
-  let savedCount = 0;
-
-  for (const symbol of slice) {
-    const signal = await scanOneSymbol(symbol);
-    if (signal) {
-      await saveSignal(signal);
-      savedCount++;
+    if (cached) {
+      return NextResponse.json({
+        signal: cached,
+        quote,
+        technicals: null,
+        news: [],
+        fromCache: true,
+      });
     }
-    await sleep(TWELVE_DATA_SPACING_MS);
+
+    const newsAdapter = new NewsApiAdapter();
+    const nowUnix = Math.floor(Date.now() / 1000);
+    const newsFromUnix = nowUnix - 24 * 3600;
+
+    const [candles, rawNews] = await Promise.all([
+      getDailyCandles(upperSymbol, 90),
+      newsAdapter.getNewsForSymbol(upperSymbol, newsFromUnix),
+    ]);
+
+    if (candles.length < 35) {
+      return NextResponse.json(
+        {
+          error: `Insufficient candle history for "${upperSymbol}" to compute indicators (got ${candles.length}, need 35+)`,
+        },
+        { status: 422 }
+      );
+    }
+
+    const technicals = buildTechnicalSnapshot(upperSymbol, candles);
+    const { items: scoredNews, compositeScore } = scoreNewsBatch(rawNews, nowUnix);
+
+    const signal = generateSignal({
+      symbol: upperSymbol,
+      price: quote.price,
+      technicals,
+      newsItems: scoredNews,
+      compositeSentiment: compositeScore,
+    });
+
+    await saveSignalToCache(signal);
+
+    return NextResponse.json({ signal, quote, technicals, news: scoredNews, fromCache: false });
+  } catch (err: any) {
+    console.error(`[/api/signal] ${upperSymbol}:`, err.message);
+    return NextResponse.json(
+      { error: err.message ?? "Failed to generate signal" },
+      { status: 502 }
+    );
   }
-
-  await sql`UPDATE scan_progress SET last_index = ${nextIndex} WHERE id = 1;`;
-
-  return NextResponse.json({
-    sliceScanned: slice,
-    savedCount,
-    nextIndex,
-    totalTickers: SP500_TICKERS.length,
-  });
 }
