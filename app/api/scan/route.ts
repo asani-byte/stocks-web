@@ -12,7 +12,7 @@ import type { Signal } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SLICE_SIZE = 6;
+const SLICE_SIZE = 3;
 const TWELVE_DATA_SPACING_MS = 8000;
 
 function sleep(ms: number): Promise<void> {
