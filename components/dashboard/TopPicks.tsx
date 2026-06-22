@@ -23,8 +23,8 @@ export function TopPicks() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["scan"],
     queryFn: fetchScan,
-    staleTime: 5 * 60_000,
-    refetchInterval: 5 * 60_000,
+    staleTime: 15 * 60_000,
+    refetchInterval: 15 * 60_000,
     retry: 1,
   });
 
