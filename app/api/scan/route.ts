@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@vercel/postgres";
 import { getPriceAdapter } from "@/lib/adapters";
 import { NewsApiAdapter } from "@/lib/adapters/newsApiAdapter";
@@ -75,7 +75,14 @@ async function saveSignal(signal: Signal): Promise<void> {
   `;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authHeader = request.headers.get("authorization");
+  const expectedSecret = process.env.CRON_SECRET;
+
+  if (!expectedSecret || authHeader !== `Bearer ${expectedSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const progressResult = await sql`SELECT last_index FROM scan_progress WHERE id = 1;`;
   const lastIndex = progressResult.rows[0]?.last_index ?? 0;
 
