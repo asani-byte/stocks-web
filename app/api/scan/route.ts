@@ -12,7 +12,8 @@ import type { Signal } from "@/lib/types";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SLICE_SIZE = 20;
+const SLICE_SIZE = 6;
+const TWELVE_DATA_SPACING_MS = 8000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,9 +27,7 @@ async function scanOneSymbol(symbol: string): Promise<Signal | null> {
     const newsFromUnix = nowUnix - 24 * 3600;
 
     const quote = await priceAdapter.getQuote(symbol);
-    await sleep(300);
     const candles = await getDailyCandles(symbol, 90);
-    await sleep(300);
     const rawNews = await newsAdapter.getNewsForSymbol(symbol, newsFromUnix);
 
     if (candles.length < 35) return null;
@@ -97,7 +96,7 @@ export async function GET(request: NextRequest) {
       await saveSignal(signal);
       savedCount++;
     }
-    await sleep(300);
+    await sleep(TWELVE_DATA_SPACING_MS);
   }
 
   await sql`UPDATE scan_progress SET last_index = ${nextIndex} WHERE id = 1;`;
